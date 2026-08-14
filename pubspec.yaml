@@ -31,6 +31,7 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
+  http: ^1.2.0
   # Agregamos Drift y sus dependencias de soporte
   drift: ^2.16.0
   sqlite3_flutter_libs: ^0.5.0
@@ -82,5 +83,3 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
-dependencies:
-  flutter_secure_storage: ^9.0.0
