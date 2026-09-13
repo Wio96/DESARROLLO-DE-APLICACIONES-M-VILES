@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.example.biosacha"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37 // Actualizado para cumplir con flutter_secure_storage
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -20,7 +20,7 @@ android {
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 37 // Actualizado para mantener paridad con compileSdk
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
