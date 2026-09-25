@@ -46,7 +46,7 @@ exports.login = async (req, res) => {
         const token = jwt.sign(
             { id: user.id, rol: user.rol }, 
             'biosacha_secreto_123', 
-            { expiresIn: '24h' }
+            { expiresIn: '1m' }
         );
 
         // 4. Respondemos a Flutter enviando el ROL exacto del usuario

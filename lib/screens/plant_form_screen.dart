@@ -1,13 +1,13 @@
+// lib/screens/plant_form_screen.dart
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'dart:async';
 import 'package:image_picker/image_picker.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:drift/drift.dart' as drift;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../database/database.dart';
-import '../config/api_constants.dart';
+import '../config/api.client.dart';
+import '../models/plant_model.dart';
+import '../repositories/plant_repository.dart';
 import 'login_screen.dart';
 import 'plants_screen.dart';
 
@@ -46,8 +46,6 @@ class _PlantFormScreenState extends State<PlantFormScreen> {
   File? _imageFile;
   final ImagePicker _picker = ImagePicker();
   bool _isSaving = false;
-
-  // VARIABLE DE ESTADO DE CONEXIÓN PARA EL INDICADOR VISUAL
   bool _isOnline = true;
 
   @override
@@ -56,23 +54,17 @@ class _PlantFormScreenState extends State<PlantFormScreen> {
     _verificarConexionInicial();
   }
 
-  // Verificamos el estado al abrir la pantalla
+  // Verificamos usando la instancia única de Dio
   Future<void> _verificarConexionInicial() async {
     try {
-      final response = await http
-          .get(Uri.parse('${ApiConstants.baseUrl}/plants'))
-          .timeout(const Duration(seconds: 3));
+      final response = await ApiClient().dio.get('/plants');
       if (mounted) {
         setState(() {
-          _isOnline = response.statusCode < 500;
+          _isOnline = response.statusCode != null && response.statusCode! < 500;
         });
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isOnline = false;
-        });
-      }
+      if (mounted) setState(() => _isOnline = false);
     }
   }
 
@@ -100,136 +92,56 @@ class _PlantFormScreenState extends State<PlantFormScreen> {
   Future<void> _savePlant() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() {
-      _isSaving = true;
-    });
+    setState(() => _isSaving = true);
 
-    final plantData = {
-      'name': _nameController.text.trim(),
-      'scientificName': _scientificNameController.text.trim(),
-      'description': _descriptionController.text.trim(),
-      'category': _selectedCategory,
-      'latitude': -1.5000,
-      'longitude': -77.9000,
-      'userId': widget.userId,
-    };
-
-    bool conexionExitosa = false;
-    int? idRetornado;
-
-    try {
-      final response = await http
-          .post(
-            Uri.parse('${ApiConstants.baseUrl}/plants'),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode(plantData),
-          )
-          .timeout(const Duration(seconds: 5));
-
-      if (response.statusCode == 201) {
-        conexionExitosa = true;
-        final responseData = jsonDecode(response.body);
-        idRetornado = int.tryParse(responseData['plant']['id'].toString());
-      }
-    } catch (e) {
-      print('🚨 SEÑAL PERDIDA O FALLO DE RED: $e');
-    }
-
-    // Actualizamos el estado visual de la app según el resultado
-    setState(() {
-      _isOnline = conexionExitosa;
-    });
+    // 1. Usamos el PlantModel con serialización generada
+    final plantModel = PlantModel(
+      name: _nameController.text.trim(),
+      scientificName: _scientificNameController.text.trim().isEmpty
+          ? null
+          : _scientificNameController.text.trim(),
+      description: _descriptionController.text.trim().isEmpty
+          ? null
+          : _descriptionController.text.trim(),
+      category: _selectedCategory,
+      latitude: -1.5000,
+      longitude: -77.9000,
+      tecnicoId: widget.userId,
+    );
 
     try {
-      if (conexionExitosa) {
-        if (_imageFile != null && idRetornado != null) {
-          await _uploadPhoto(idRetornado);
-        }
+      // 2. Llamamos al cerebro (Repositorio). La pantalla ya no hace peticiones HTTP.
+      final repository = PlantRepository(widget.database);
+      final mensaje = await repository.savePlant(plantModel, _imageFile?.path);
 
-        await widget.database
-            .into(widget.database.registrosCampo)
-            .insert(
-              RegistrosCampoCompanion(
-                id: drift.Value(
-                  DateTime.now().millisecondsSinceEpoch.toString(),
-                ),
-                nombreEspecie: drift.Value(_nameController.text.trim()),
-                latitud: const drift.Value(-1.5000),
-                longitud: const drift.Value(-77.9000),
-                fotografiaUrl: drift.Value(_imageFile?.path ?? ''),
-                sincronizado: const drift.Value(true),
-              ),
-            );
-
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('¡Planta sincronizada con éxito en MariaDB! 🌿'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        await widget.database
-            .into(widget.database.registrosCampo)
-            .insert(
-              RegistrosCampoCompanion(
-                id: drift.Value(
-                  DateTime.now().millisecondsSinceEpoch.toString(),
-                ),
-                nombreEspecie: drift.Value(_nameController.text.trim()),
-                latitud: const drift.Value(-1.5000),
-                longitud: const drift.Value(-77.9000),
-                fotografiaUrl: drift.Value(_imageFile?.path ?? ''),
-                sincronizado: const drift.Value(false),
-              ),
-            );
-
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Sin conexión: Guardado local para sincronizar luego 📱',
-            ),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-
-      _formKey.currentState?.reset();
+      // Actualizamos estado de conexión según la respuesta
       setState(() {
-        _imageFile = null;
+        _isOnline = !mensaje.contains('Sin conexión');
       });
-    } catch (errorInterno) {
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error de validación local: $errorInterno'),
+          content: Text(mensaje),
+          backgroundColor: _isOnline ? Colors.green : Colors.orange,
+        ),
+      );
+
+      // Limpiamos el formulario
+      _formKey.currentState?.reset();
+      setState(() => _imageFile = null);
+    } catch (error) {
+      if (!mounted) return;
+      // Mostramos los errores de validación (422) o del servidor en rojo
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceAll('Exception:', '').trim()),
           backgroundColor: Colors.red,
         ),
       );
     } finally {
-      if (mounted) {
-        setState(() {
-          _isSaving = false;
-        });
-      }
+      if (mounted) setState(() => _isSaving = false);
     }
-  }
-
-  Future<void> _uploadPhoto(int plantId) async {
-    var request = http.MultipartRequest(
-      'POST',
-      Uri.parse('${ApiConstants.baseUrl}/plants/photo'),
-    );
-    request.fields['plantId'] = plantId.toString();
-    if (_imageFile != null) {
-      request.files.add(
-        await http.MultipartFile.fromPath('photo', _imageFile!.path),
-      );
-    }
-
-    var streamedResponse = await request.send();
-    await http.Response.fromStream(streamedResponse);
   }
 
   @override

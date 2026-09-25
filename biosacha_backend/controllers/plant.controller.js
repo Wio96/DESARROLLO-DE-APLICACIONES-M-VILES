@@ -17,7 +17,6 @@ exports.getAllPlants = async (req, res) => {
             include: [{ model: User, attributes: ['email', 'role'] }]
         });
 
-        // AQUÍ ESTÁ LA MODIFICACIÓN:
         // Convertimos los modelos de Sequelize a objetos planos (JSON)
         const plantsJson = plants.map(p => p.toJSON());
 
@@ -35,6 +34,14 @@ exports.getAllPlants = async (req, res) => {
 
 exports.createPlant = async (req, res) => {
     try {
+        // --- TRAMPA PARA EL VIDEO (Error 422) ---
+        if (req.body.name === 'Planta Prohibida') {
+            return res.status(422).json({
+                error: 'El nombre de esta especie no está permitido en el registro territorial.'
+            });
+        }
+        // ----------------------------------------
+
         // 1. Creamos la planta
         const newPlant = await Plant.create(req.body);
         
