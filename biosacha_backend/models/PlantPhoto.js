@@ -8,7 +8,8 @@ const PlantPhoto = sequelize.define('PlantPhoto', {
         primaryKey: true
     },
     plantId: {
-        type: DataTypes.STRING(100),
+        // ¡Cambiado a INTEGER para que coincida con el id de Plantas!
+        type: DataTypes.INTEGER,
         allowNull: false
     },
     photoUrl: {
