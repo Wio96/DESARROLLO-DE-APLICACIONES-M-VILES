@@ -20,18 +20,31 @@ exports.getAllPlants = async (req, res) => {
         console.log('💾 Consultando Base de Datos...');
         const whereCondition = categoryFilter ? { category: categoryFilter } : {};
 
+        // 1. Buscamos todas las plantas
         const plants = await Plant.findAll({
             where: whereCondition,
             include: [{ model: User, attributes: ['email', 'rol'] }]
         });
 
-        const plantsJson = plants.map(p => p.toJSON());
+        // 2. MÉTODO SEGURO: Buscamos la foto correspondiente a cada planta en la tabla plant_photos
+        const plantsJson = [];
+        for (let p of plants) {
+            const plant = p.toJSON();
+            
+            // Buscamos si esta planta tiene una foto guardada
+            const photo = await PlantPhoto.findOne({ where: { plantId: plant.id } });
+            
+            // Si encontramos la foto, se la asignamos a 'fotografiaUrl' para que Flutter la lea
+            plant.fotografiaUrl = photo ? photo.photoUrl : null;
+            
+            plantsJson.push(plant);
+        }
 
         myCache.set(cacheKey, plantsJson);
         return res.status(200).json(plantsJson);
 
     } catch (error) {
-        console.error("❌ ERROR CRÍTICO:", error);
+        console.error("❌ ERROR CRÍTICO obteniendo plantas:", error);
         return res.status(500).json({ error: error.message });
     }
 };
@@ -64,12 +77,11 @@ exports.createPlant = async (req, res) => {
         // 2. Guardamos la planta en la tabla 'plants'
         const newPlant = await Plant.create(plantData);
 
-        // 3. Si viene una foto, la guardamos en TU TABLA 'plant_photos'
+        // 3. Si viene una foto, la guardamos en la tabla 'plant_photos'
         if (req.file) {
             const serverUrl = `${req.protocol}://${req.get('host')}`;
             const urlDeLaFoto = `${serverUrl}/uploads/${req.file.filename}`;
             
-            // Usamos el modelo PlantPhoto que se conecta con defaultdb.plant_photos
             await PlantPhoto.create({
                 plantId: newPlant.id,
                 photoUrl: urlDeLaFoto
@@ -81,12 +93,11 @@ exports.createPlant = async (req, res) => {
 
         myCache.flushAll(); 
         
-        // Devolvemos la planta creada con su ID para que Flutter lo lea sin errores
+        // Devolvemos la planta creada con su ID
         return res.status(201).json(newPlant);
         
     } catch (error) {
         console.error("❌ Error detallado guardando planta:", error);
-        // Cambiado a 500 para atrapar errores de la base de datos correctamente
         return res.status(500).json({ error: error.message }); 
     }
 };
@@ -129,7 +140,7 @@ exports.deletePlant = async (req, res) => {
     try {
         const { id } = req.params;
         
-        // Primero eliminamos la foto asociada para evitar errores de llaves foráneas
+        // Primero eliminamos la foto asociada para evitar errores
         await PlantPhoto.destroy({ where: { plantId: id } });
         
         // Luego eliminamos la planta
