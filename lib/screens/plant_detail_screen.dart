@@ -28,14 +28,48 @@ class PlantDetailScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 1. LA FOTO EN GRANDE
-            if (hasImage)
-              Image.file(
-                File(plant.fotografiaUrl!),
-                height: 350,
-                width: double.infinity,
-                fit: BoxFit.cover,
-              )
+            // 1. LA FOTO EN GRANDE (Soporte dual: Internet y Local)
+            if (plant.fotografiaUrl != null && plant.fotografiaUrl!.isNotEmpty)
+              plant.fotografiaUrl!.startsWith('http')
+                  ? Image.network(
+                      plant.fotografiaUrl!,
+                      height: 350,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      // Muestra un círculo de carga mientras descarga la foto de Render
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return SizedBox(
+                          height: 350,
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              value: loadingProgress.expectedTotalBytes != null
+                                  ? loadingProgress.cumulativeBytesLoaded /
+                                        loadingProgress.expectedTotalBytes!
+                                  : null,
+                            ),
+                          ),
+                        );
+                      },
+                      // Si falla la carga, muestra un icono de error
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        height: 350,
+                        color: Colors.grey.shade300,
+                        child: const Center(
+                          child: Icon(
+                            Icons.broken_image,
+                            size: 80,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ),
+                    )
+                  : Image.file(
+                      File(plant.fotografiaUrl!),
+                      height: 350,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                    )
             else
               Container(
                 height: 250,
@@ -52,6 +86,8 @@ class PlantDetailScreen extends StatelessWidget {
                   ],
                 ),
               ),
+
+            // 2. LOS DETALLES (El resto de tu código sigue igual...)
 
             // 2. LOS DETALLES
             Padding(
