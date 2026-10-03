@@ -29,7 +29,7 @@ class PlantRepository {
       // Si hay una foto seleccionada, la adjuntamos al FormData
       if (imagePath != null && imagePath.isNotEmpty) {
         // Asegúrate de que 'image' coincida con lo que pusiste en Node.js (upload.single('image'))
-        mapData['image'] = await MultipartFile.fromFile(imagePath);
+        mapData['foto'] = await MultipartFile.fromFile(imagePath);
       }
 
       final formData = FormData.fromMap(mapData);
