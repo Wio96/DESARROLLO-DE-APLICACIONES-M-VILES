@@ -4,11 +4,18 @@ const router = express.Router();
 const plantController = require('../controllers/plant.controller');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 
-// Configuración de Multer para guardar las fotos en la carpeta 'uploads'
+// SOLUCIÓN PARA RENDER: Asegurar que la carpeta 'uploads' exista ANTES de que Multer actúe
+const uploadDir = path.join(__dirname, '../uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// Configuración de Multer para guardar las fotos
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'uploads/'); // Asegúrate de tener una carpeta llamada 'uploads' en la raíz de tu proyecto
+    cb(null, 'uploads/'); 
   },
   filename: (req, file, cb) => {
     // Genera un nombre único: foto_16900000000.jpg
@@ -21,7 +28,7 @@ const upload = multer({ storage: storage });
 
 router.get('/', plantController.getAllPlants);
 
-// CAMBIO CRÍTICO: Agregamos 'upload.single('foto')' para que intercepte la imagen adjunta
+// Multer interceptará el archivo enviado con el nombre 'foto'
 router.post('/', upload.single('foto'), plantController.createPlant);
 
 router.put('/:id', upload.single('foto'), plantController.updatePlant);

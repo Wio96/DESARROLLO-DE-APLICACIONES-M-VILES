@@ -6,10 +6,10 @@ class ApiConstants {
   // Dirección base dinámica según el ambiente
   static String get baseUrl {
     if (env == 'prod') {
-      // Exigencia de la rúbrica: HTTPS en producción
-      return 'https://api.biosacha.com/api';
+      // URL oficial de tu backend desplegado en Render
+      return 'https://desarrollo-de-aplicaciones-m-viles.onrender.com/api';
     }
-    // Ambiente de desarrollo (dev) - Ajusta tu IP si pruebas en dispositivo físico
+    // Ambiente de desarrollo (dev) - Para pruebas locales en tu emulador o red
     return 'http://192.168.1.42:3000/api';
   }
 

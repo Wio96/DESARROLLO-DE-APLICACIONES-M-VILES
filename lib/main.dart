@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'database/database.dart';
 
-import 'screens/plant_form_screen.dart';
 import 'screens/plants_screen.dart';
 import 'screens/login_screen.dart';
 

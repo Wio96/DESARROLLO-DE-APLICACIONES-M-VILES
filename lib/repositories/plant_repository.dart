@@ -12,26 +12,39 @@ class PlantRepository {
 
   PlantRepository(this._database);
 
-  // POST: Crear Planta (Ya lo tenías)
+  // POST: Crear Planta (Unificado: Envía datos y foto juntos, y lee el ID correcto)
   Future<String> savePlant(PlantModel plant, String? imagePath) async {
     try {
-      final response = await _apiClient.dio.post(
-        '/plants',
-        data: plant.toJson(),
-      );
+      // Armamos el mapa de datos para enviarlo como FormData (multipart)
+      final Map<String, dynamic> mapData = {
+        'name': plant.name,
+        'scientificName': plant.scientificName ?? '',
+        'description': plant.description ?? '',
+        'category': plant.category,
+        'latitude': plant.latitude?.toString() ?? '-1.5000',
+        'longitude': plant.longitude?.toString() ?? '-77.9000',
+        'userId': plant.tecnicoId,
+      };
+
+      // Si hay una foto seleccionada, la adjuntamos al FormData
+      if (imagePath != null && imagePath.isNotEmpty) {
+        // Asegúrate de que 'image' coincida con lo que pusiste en Node.js (upload.single('image'))
+        mapData['image'] = await MultipartFile.fromFile(imagePath);
+      }
+
+      final formData = FormData.fromMap(mapData);
+
+      final response = await _apiClient.dio.post('/plants', data: formData);
 
       if (response.statusCode == 201) {
-        final int newId = response.data['plant']['id'];
+        // Leemos el ID directamente de la respuesta del backend
+        final dynamic plantIdRaw =
+            response.data['id'] ?? response.data['plant']?['id'];
+        final String newId = plantIdRaw != null
+            ? plantIdRaw.toString()
+            : DateTime.now().millisecondsSinceEpoch.toString();
 
-        if (imagePath != null) {
-          final formData = FormData.fromMap({
-            'plantId': newId.toString(),
-            'photo': await MultipartFile.fromFile(imagePath),
-          });
-          await _apiClient.dio.post('/plants/photo', data: formData);
-        }
-
-        await _saveToLocal(plant, imagePath, newId.toString(), true);
+        await _saveToLocal(plant, imagePath, newId, true);
         return "¡Planta sincronizada con éxito en MariaDB! 🌿";
       }
       return "Guardado exitosamente.";

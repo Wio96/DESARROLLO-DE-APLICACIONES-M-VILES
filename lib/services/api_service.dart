@@ -1,4 +1,3 @@
-import 'dart:convert';
 // Nota: Cuando estés listo para conectar al servidor, descomenta la siguiente línea:
 // import 'package:http/http.dart' as http;
 

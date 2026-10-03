@@ -1,9 +1,11 @@
 // controllers/plant.controller.js
 const Plant = require('../models/Plant');
 const User = require('../models/User');
-const PlantPhoto = require('../models/PlantPhoto'); // Asumo que lo importas para futuras relaciones, aunque guardaremos la foto principal en la tabla Plant para mayor facilidad según tu PlantModel
+const PlantPhoto = require('../models/PlantPhoto');
 const NodeCache = require('node-cache');
 const myCache = new NodeCache({ stdTTL: 60 });
+const fs = require('fs');
+const path = require('path');
 
 exports.getAllPlants = async (req, res) => {
     try {
@@ -42,6 +44,12 @@ exports.createPlant = async (req, res) => {
             });
         }
 
+        // Asegurar que la carpeta uploads exista físicamente
+        const uploadDir = path.join(__dirname, '../uploads');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+
         // Armamos el objeto con los datos que llegaron del formulario
         const plantData = {
             name: req.body.name,
@@ -53,18 +61,23 @@ exports.createPlant = async (req, res) => {
             userId: req.body.userId,
         };
 
-        // INTEGRACIÓN MULTER: Si el usuario envió una foto, construimos la URL pública
+        // INTEGRACIÓN MULTER: Si el usuario envió una foto correctamente
         if (req.file) {
-            // Ejemplo de ruta: http://10.0.2.2:3000/uploads/foto_12345.jpg
             const serverUrl = `${req.protocol}://${req.get('host')}`;
             plantData.fotografiaUrl = `${serverUrl}/uploads/${req.file.filename}`;
+            console.log("📸 Foto procesada y guardada:", plantData.fotografiaUrl);
+        } else {
+            console.log("⚠️ Advertencia: No se recibió ningún archivo adjunto en la petición.");
         }
 
         const newPlant = await Plant.create(plantData);
         myCache.flushAll(); 
-        res.status(201).json(newPlant);
+        
+        // Devolvemos la planta creada con su ID para que Flutter lo lea sin errores
+        return res.status(201).json(newPlant);
+        
     } catch (error) {
-        console.error("Error guardando planta:", error);
+        console.error("❌ Error detallado guardando planta:", error);
         return res.status(400).json({ error: error.message });
     }
 };
@@ -74,7 +87,6 @@ exports.updatePlant = async (req, res) => {
         const { id } = req.params;
         const updateData = { ...req.body };
 
-        // Si envió una foto nueva al editar, actualizamos el enlace
         if (req.file) {
             const serverUrl = `${req.protocol}://${req.get('host')}`;
             updateData.fotografiaUrl = `${serverUrl}/uploads/${req.file.filename}`;
@@ -87,9 +99,10 @@ exports.updatePlant = async (req, res) => {
         }
 
         myCache.flushAll(); 
-        res.status(200).json({ message: 'Planta actualizada correctamente 🌿' });
+        return res.status(200).json({ message: 'Planta actualizada correctamente 🌿' });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error("❌ Error actualizando planta:", error);
+        return res.status(500).json({ error: error.message });
     }
 };
 
@@ -99,12 +112,13 @@ exports.deletePlant = async (req, res) => {
         const deleted = await Plant.destroy({ where: { id } });
         
         if (!deleted) {
-            return res.status(404).json({ error: 'Planta no encontrada' });
+            return res.status(404).json({ error: 'Plans no encontrada' });
         }
 
         myCache.flushAll(); 
-        res.status(200).json({ message: 'Planta eliminada permanentemente 🗑️' });
+        return res.status(200).json({ message: 'Planta eliminada permanentemente 🗑️' });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error("❌ Error eliminando planta:", error);
+        return res.status(500).json({ error: error.message });
     }
 };
