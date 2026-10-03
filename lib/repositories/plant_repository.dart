@@ -1,4 +1,5 @@
 // lib/repositories/plant_repository.dart
+import 'dart:io'; // IMPORTANTE: Agregado para poder usar File y verificar la ruta
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' as drift;
 import '../config/api.client.dart';
@@ -26,10 +27,22 @@ class PlantRepository {
         'userId': plant.tecnicoId,
       };
 
-      // Si hay una foto seleccionada, la adjuntamos al FormData
+      // VERIFICACIÓN ESTRICTA DE LA FOTO
       if (imagePath != null && imagePath.isNotEmpty) {
-        // Asegúrate de que 'image' coincida con lo que pusiste en Node.js (upload.single('image'))
-        mapData['foto'] = await MultipartFile.fromFile(imagePath);
+        File file = File(imagePath);
+        if (file.existsSync()) {
+          // Asegúrate de que 'foto' coincida con lo que pusiste en Node.js (upload.single('foto'))
+          mapData['foto'] = await MultipartFile.fromFile(imagePath);
+          print('📸 Archivo adjuntado correctamente desde: $imagePath');
+        } else {
+          print(
+            '⚠️ ERROR: Flutter no encuentra el archivo físico en la ruta: $imagePath',
+          );
+        }
+      } else {
+        print(
+          '⚠️ AVISO: No se seleccionó ninguna imagen (imagePath es null o vacío)',
+        );
       }
 
       final formData = FormData.fromMap(mapData);
