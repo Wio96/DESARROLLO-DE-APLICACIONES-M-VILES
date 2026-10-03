@@ -14,6 +14,7 @@ PlantModel _$PlantModelFromJson(Map<String, dynamic> json) => PlantModel(
   description: json['description'] as String?,
   latitude: (json['latitude'] as num?)?.toDouble(),
   longitude: (json['longitude'] as num?)?.toDouble(),
+  fotografiaUrl: json['fotografiaUrl'] as String?,
   tecnicoId: json['userId'] as String,
 );
 
@@ -26,5 +27,6 @@ Map<String, dynamic> _$PlantModelToJson(PlantModel instance) =>
       'description': instance.description,
       'latitude': instance.latitude,
       'longitude': instance.longitude,
+      'fotografiaUrl': instance.fotografiaUrl,
       'userId': instance.tecnicoId,
     };

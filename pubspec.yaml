@@ -22,6 +22,7 @@ dependencies:
   # Nuevas dependencias para la Semana 13
   dio: ^5.4.0
   json_annotation: ^4.8.1
+  geolocator: ^14.1.1
 
 dev_dependencies:
   flutter_test:

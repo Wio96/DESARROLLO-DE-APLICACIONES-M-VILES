@@ -1,4 +1,5 @@
-import 'dart:convert';
+// lib/services/sync_service.dart
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:drift/drift.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -12,22 +13,18 @@ class SyncService {
 
   SyncService(this.db);
 
-  // Devuelve la cantidad de registros sincronizados para avisarle a la UI
   Future<int> procesarColaSalida() async {
     int sincronizados = 0;
     final storage = StorageService();
 
-    // 1. Obtenemos el token usando la calse storgate_service.dart para mantener la secion activa y cumplir con la seguridad JWT
     final token = await storage.getToken();
 
-    // Obtenemos el userId para cumplir con tu llave foránea en MariaDB
     final userId =
         await _secureStorage.read(key: 'userId') ??
         await _secureStorage.read(key: 'id') ??
         await _secureStorage.read(key: 'user_id') ??
         '1';
 
-    // 2. Buscamos las plantas guardadas offline en la tabla correcta (registrosCampo)
     final pendientes = await (db.select(
       db.registrosCampo,
     )..where((tbl) => tbl.sincronizado.equals(false))).get();
@@ -35,29 +32,44 @@ class SyncService {
     if (pendientes.isEmpty) return 0;
 
     for (final planta in pendientes) {
-      final payload = {
-        'name': planta.nombreEspecie,
-        'scientificName': 'Registro en territorio',
-        'description': 'Guardado offline',
-        'category': 'Medicinal',
-        'latitude': planta.latitud,
-        'longitude': planta.longitud,
-        'userId': userId,
-      };
+      // 1. Creamos una petición "Multipart" que permite adjuntar archivos
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('${ApiConstants.baseUrl}/plants'),
+      );
 
-      // 3. Intentamos conectar. Si el servidor de Node.js está apagado, lanza error a los 5s
-      final response = await http
-          .post(
-            Uri.parse('${ApiConstants.baseUrl}/plants'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-            body: jsonEncode(payload),
-          )
-          .timeout(const Duration(seconds: 5));
+      // 2. Adjuntamos las cabeceras de seguridad
+      request.headers.addAll({'Authorization': 'Bearer $token'});
 
-      // 4. Si MariaDB lo acepta, actualizamos la tabla para que la UI se pinte de verde
+      // 3. Adjuntamos los datos de texto de la planta
+      request.fields['name'] = planta.nombreEspecie;
+      request.fields['scientificName'] = 'Registro en territorio';
+      request.fields['description'] = 'Guardado offline';
+      request.fields['category'] = 'Medicinal';
+      request.fields['latitude'] = planta.latitud?.toString() ?? '-1.5000';
+      request.fields['longitude'] = planta.longitud?.toString() ?? '-77.9000';
+      request.fields['userId'] = userId;
+
+      // 4. Si la planta tiene una foto guardada en el celular, la adjuntamos al envío
+      if (planta.fotografiaUrl != null && planta.fotografiaUrl!.isNotEmpty) {
+        File imageFile = File(planta.fotografiaUrl!);
+        if (imageFile.existsSync()) {
+          request.files.add(
+            await http.MultipartFile.fromPath(
+              'foto', // Este nombre debe coincidir con el 'upload.single("foto")' de Node.js
+              imageFile.path,
+            ),
+          );
+        }
+      }
+
+      // 5. Enviamos el paquete
+      var streamedResponse = await request.send().timeout(
+        const Duration(seconds: 10),
+      );
+      var response = await http.Response.fromStream(streamedResponse);
+
+      // 6. Si el servidor responde bien (201 Created o 200 OK)
       if (response.statusCode == 201 || response.statusCode == 200) {
         await (db.update(db.registrosCampo)
               ..where((tbl) => tbl.id.equals(planta.id)))

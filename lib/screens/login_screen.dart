@@ -1,20 +1,18 @@
+// lib/screens/login_screen.dart
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../main.dart';
 
-import 'plant_form_screen.dart';
 import 'plants_screen.dart';
 import 'register_screen.dart';
-import '../database/database.dart';
 import '../config/api_constants.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  // ignore: library_private_types_in_public_api
   _LoginScreenState createState() => _LoginScreenState();
 }
 
@@ -55,16 +53,20 @@ class _LoginScreenState extends State<LoginScreen> {
 
         final String nombreUsuario =
             data['user']?['nombre'] ?? data['user']?['name'] ?? 'Usuario';
-        final String rolUsuario = data['user']?['rol'] ?? 'VISITANTE';
 
-        // CORRECCIÓN VITAL: Extraer el UUID como texto puro sin forzarlo a entero
+        // Convertimos el rol a minúsculas
+        final String rolUsuario = (data['user']?['rol'] ?? 'visitante')
+            .toString()
+            .toLowerCase()
+            .trim();
+
         final String idUsuario = data['user']?['id']?.toString() ?? '';
-
         final String token = data['token'] ?? '';
 
         await _storage.write(key: 'jwt_token', value: token);
         await _storage.write(key: 'usuario_nombre', value: nombreUsuario);
         await _storage.write(key: 'usuario_rol', value: rolUsuario);
+        await _storage.write(key: 'user_role', value: rolUsuario);
         await _storage.write(key: 'userId', value: idUsuario);
 
         if (!mounted) return;
@@ -73,24 +75,13 @@ class _LoginScreenState extends State<LoginScreen> {
           SnackBar(content: Text('¡Bienvenido $nombreUsuario! 🌿')),
         );
 
-        if (rolUsuario == 'TECNICO') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => PlantFormScreen(
-                userId: idUsuario, // Se envía el UUID de texto real
-                database: database,
-              ),
-            ),
-          );
-        } else {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => PlantsScreen(database: database),
-            ),
-          );
-        }
+        // TODOS van a la lista
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => PlantsScreen(database: database),
+          ),
+        );
       } else {
         final errorData = jsonDecode(response.body);
         _mostrarError(errorData['error'] ?? 'Credenciales inválidas');

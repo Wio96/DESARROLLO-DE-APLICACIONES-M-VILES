@@ -1,24 +1,24 @@
 // lib/screens/plant_form_screen.dart
 import 'package:flutter/material.dart';
 import 'dart:io';
-import 'dart:async';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:geolocator/geolocator.dart'; // NUEVO: Importamos el GPS
 import '../database/database.dart';
 import '../config/api.client.dart';
 import '../models/plant_model.dart';
 import '../repositories/plant_repository.dart';
-import 'login_screen.dart';
-import 'plants_screen.dart';
 
 class PlantFormScreen extends StatefulWidget {
   final String userId;
   final AppDatabase database;
+  final PlantModel? plantToEdit;
 
   const PlantFormScreen({
     super.key,
     required this.userId,
     required this.database,
+    this.plantToEdit,
   });
 
   @override
@@ -48,13 +48,73 @@ class _PlantFormScreenState extends State<PlantFormScreen> {
   bool _isSaving = false;
   bool _isOnline = true;
 
+  // NUEVO: Variables para el GPS
+  double? _currentLatitude;
+  double? _currentLongitude;
+  bool _isLoadingLocation = true;
+
   @override
   void initState() {
     super.initState();
     _verificarConexionInicial();
+
+    if (widget.plantToEdit != null) {
+      // Si estamos editando, usamos las coordenadas y datos que ya existen
+      _nameController.text = widget.plantToEdit!.name;
+      _scientificNameController.text = widget.plantToEdit!.scientificName ?? '';
+      _descriptionController.text = widget.plantToEdit!.description ?? '';
+      if (_categories.contains(widget.plantToEdit!.category)) {
+        _selectedCategory = widget.plantToEdit!.category;
+      }
+      _currentLatitude = widget.plantToEdit!.latitude;
+      _currentLongitude = widget.plantToEdit!.longitude;
+      _isLoadingLocation = false;
+    } else {
+      // Si es un registro nuevo, encendemos el GPS
+      _obtenerUbicacion();
+    }
   }
 
-  // Verificamos usando la instancia única de Dio
+  // NUEVO: Lógica maestra para capturar el GPS real
+  Future<void> _obtenerUbicacion() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    // 1. Revisa si el GPS del celular está encendido
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      if (mounted) setState(() => _isLoadingLocation = false);
+      return;
+    }
+
+    // 2. Revisa si el usuario nos dio permiso
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        if (mounted) setState(() => _isLoadingLocation = false);
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      if (mounted) setState(() => _isLoadingLocation = false);
+      return;
+    }
+
+    // 3. ¡Capturamos la latitud y longitud exacta!
+    Position position = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
+    if (mounted) {
+      setState(() {
+        _currentLatitude = position.latitude;
+        _currentLongitude = position.longitude;
+        _isLoadingLocation = false;
+      });
+    }
+  }
+
   Future<void> _verificarConexionInicial() async {
     try {
       final response = await ApiClient().dio.get('/plants');
@@ -71,10 +131,7 @@ class _PlantFormScreenState extends State<PlantFormScreen> {
   Future<void> _logout() async {
     await _storage.deleteAll();
     if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const LoginScreen()),
-    );
+    Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
   }
 
   Future<void> _pickImage(ImageSource source) async {
@@ -94,8 +151,8 @@ class _PlantFormScreenState extends State<PlantFormScreen> {
 
     setState(() => _isSaving = true);
 
-    // 1. Usamos el PlantModel con serialización generada
     final plantModel = PlantModel(
+      id: widget.plantToEdit?.id,
       name: _nameController.text.trim(),
       scientificName: _scientificNameController.text.trim().isEmpty
           ? null
@@ -104,17 +161,16 @@ class _PlantFormScreenState extends State<PlantFormScreen> {
           ? null
           : _descriptionController.text.trim(),
       category: _selectedCategory,
-      latitude: -1.5000,
-      longitude: -77.9000,
+      // NUEVO: Guardamos el GPS real. Si falla, usa coordenadas base de Pastaza.
+      latitude: _currentLatitude ?? -1.5000,
+      longitude: _currentLongitude ?? -77.9000,
       tecnicoId: widget.userId,
     );
 
     try {
-      // 2. Llamamos al cerebro (Repositorio). La pantalla ya no hace peticiones HTTP.
       final repository = PlantRepository(widget.database);
       final mensaje = await repository.savePlant(plantModel, _imageFile?.path);
 
-      // Actualizamos estado de conexión según la respuesta
       setState(() {
         _isOnline = !mensaje.contains('Sin conexión');
       });
@@ -127,12 +183,12 @@ class _PlantFormScreenState extends State<PlantFormScreen> {
         ),
       );
 
-      // Limpiamos el formulario
       _formKey.currentState?.reset();
       setState(() => _imageFile = null);
+
+      Navigator.pop(context);
     } catch (error) {
       if (!mounted) return;
-      // Mostramos los errores de validación (422) o del servidor en rojo
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(error.toString().replaceAll('Exception:', '').trim()),
@@ -148,22 +204,17 @@ class _PlantFormScreenState extends State<PlantFormScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Registrar Planta - Biosacha'),
+        title: Text(
+          widget.plantToEdit != null ? 'Editar Planta' : 'Registrar Planta',
+        ),
         backgroundColor: const Color(0xFF1B4D3E),
         foregroundColor: Colors.white,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          tooltip: 'Volver al Listado',
+          onPressed: () => Navigator.pop(context),
+        ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.list_alt),
-            tooltip: 'Ver Listado',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => PlantsScreen(database: widget.database),
-                ),
-              );
-            },
-          ),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Cerrar Sesión',
@@ -173,7 +224,6 @@ class _PlantFormScreenState extends State<PlantFormScreen> {
       ),
       body: Column(
         children: [
-          // INDICADOR VISUAL DE ESTADO (ONLINE / OFFLINE)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
@@ -190,9 +240,7 @@ class _PlantFormScreenState extends State<PlantFormScreen> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  _isOnline
-                      ? 'Modo En Línea (Conectado al Servidor)'
-                      : 'Modo Offline (Sin conexión - Datos Locales)',
+                  _isOnline ? 'En Línea' : 'Offline (Datos Locales)',
                   style: TextStyle(
                     color: _isOnline
                         ? Colors.green.shade900
@@ -234,7 +282,7 @@ class _PlantFormScreenState extends State<PlantFormScreen> {
                     ),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
-                      initialValue: _selectedCategory,
+                      value: _selectedCategory,
                       decoration: const InputDecoration(
                         labelText: 'Categoría',
                         border: OutlineInputBorder(),
@@ -257,6 +305,37 @@ class _PlantFormScreenState extends State<PlantFormScreen> {
                         border: OutlineInputBorder(),
                       ),
                     ),
+                    const SizedBox(height: 16),
+
+                    // NUEVO: Indicador visual del estado del GPS
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.location_on, color: Colors.blue.shade700),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _isLoadingLocation
+                                  ? 'Obteniendo GPS...'
+                                  : (_currentLatitude != null
+                                        ? 'Ubicación lista: ${_currentLatitude!.toStringAsFixed(4)}, ${_currentLongitude!.toStringAsFixed(4)}'
+                                        : 'No se pudo obtener el GPS. Se usará la ubicación base.'),
+                              style: TextStyle(
+                                color: Colors.blue.shade900,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
                     const SizedBox(height: 20),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -301,9 +380,11 @@ class _PlantFormScreenState extends State<PlantFormScreen> {
                       onPressed: _isSaving ? null : _savePlant,
                       child: _isSaving
                           ? const CircularProgressIndicator(color: Colors.white)
-                          : const Text(
-                              'Guardar Registro',
-                              style: TextStyle(fontSize: 16),
+                          : Text(
+                              widget.plantToEdit != null
+                                  ? 'Actualizar Registro'
+                                  : 'Guardar Registro',
+                              style: const TextStyle(fontSize: 16),
                             ),
                     ),
                   ],

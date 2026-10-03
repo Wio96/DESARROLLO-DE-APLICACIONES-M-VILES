@@ -46,8 +46,10 @@ sequelize.sync({ alter: true })
   .then(() => {
     console.log('✅ Base de datos sincronizada y estructura actualizada correctamente');
     
-    app.listen(3000, '0.0.0.0', () => {
-      console.log('🚀 Servidor corriendo en el puerto 3000');
+    // CAMBIO DE PUERTO: Usa el puerto que le asigne la nube (Render) o el 3000 por defecto localmente
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
     });
   })
   .catch(err => {

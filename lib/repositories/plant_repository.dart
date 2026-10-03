@@ -12,10 +12,9 @@ class PlantRepository {
 
   PlantRepository(this._database);
 
-  // La pantalla llamará a esta función y no sabrá si hay internet o no
+  // POST: Crear Planta (Ya lo tenías)
   Future<String> savePlant(PlantModel plant, String? imagePath) async {
     try {
-      // 1. FUENTE REMOTA: Intentamos enviar a MariaDB usando Dio
       final response = await _apiClient.dio.post(
         '/plants',
         data: plant.toJson(),
@@ -24,7 +23,6 @@ class PlantRepository {
       if (response.statusCode == 201) {
         final int newId = response.data['plant']['id'];
 
-        // 2. Si hay foto y hay internet, la subimos directamente (Lógica que tenías en tu pantalla)
         if (imagePath != null) {
           final formData = FormData.fromMap({
             'plantId': newId.toString(),
@@ -33,30 +31,61 @@ class PlantRepository {
           await _apiClient.dio.post('/plants/photo', data: formData);
         }
 
-        // 3. FUENTE LOCAL: Guardamos en Drift como "sincronizado" (true)
         await _saveToLocal(plant, imagePath, newId.toString(), true);
         return "¡Planta sincronizada con éxito en MariaDB! 🌿";
       }
       return "Guardado exitosamente.";
     } on DioException catch (e) {
-      // Traducimos el error feo a un mensaje legible
       final mensajeDominio = AppExceptions.getErrorMessage(e);
 
-      // Si el error es por falta de internet, guardamos offline
       if (e.type == DioExceptionType.connectionError ||
           e.type == DioExceptionType.connectionTimeout) {
         final tempId = DateTime.now().millisecondsSinceEpoch.toString();
-        // FUENTE LOCAL: Guardamos en Drift como "Pendiente" (false)
         await _saveToLocal(plant, imagePath, tempId, false);
         return "Sin conexión: Guardado local para sincronizar luego 📱";
       }
 
-      // Si es un error del servidor (ej. 422 o 500), se lo lanzamos a la pantalla
       throw Exception(mensajeDominio);
     }
   }
 
-  // Método privado para insertar en Drift
+  // GET: Obtener todas las plantas (Con optimización de filtro)
+  Future<List<PlantModel>> getAllPlants({String? category}) async {
+    try {
+      final String url = category != null && category.isNotEmpty
+          ? '/plants?category=$category'
+          : '/plants';
+
+      final response = await _apiClient.dio.get(url);
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = response.data;
+        return data.map((json) => PlantModel.fromJson(json)).toList();
+      }
+      return [];
+    } on DioException catch (e) {
+      throw Exception(AppExceptions.getErrorMessage(e));
+    }
+  }
+
+  // PUT: Actualizar Planta
+  Future<void> updatePlant(int id, PlantModel plant) async {
+    try {
+      await _apiClient.dio.put('/plants/$id', data: plant.toJson());
+    } on DioException catch (e) {
+      throw Exception(AppExceptions.getErrorMessage(e));
+    }
+  }
+
+  // DELETE: Eliminar Planta
+  Future<void> deletePlant(int id) async {
+    try {
+      await _apiClient.dio.delete('/plants/$id');
+    } on DioException catch (e) {
+      throw Exception(AppExceptions.getErrorMessage(e));
+    }
+  }
+
   Future<void> _saveToLocal(
     PlantModel plant,
     String? imagePath,

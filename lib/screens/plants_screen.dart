@@ -1,12 +1,18 @@
+// lib/screens/plants_screen.dart
+import 'plant_detail_screen.dart'; // Importación de la pantalla de detalles
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../theme/app_tokens.dart';
 import '../components/plant_card.dart';
-import '../components/resource_state_handler.dart';
 import '../components/custom_button.dart';
 import '../database/database.dart';
 import '../services/sync_service.dart';
-import '../config/api_constants.dart';
+import '../repositories/plant_repository.dart';
+import '../models/plant_model.dart';
+
+// Limpiamos las importaciones duplicadas
+import 'plant_form_screen.dart';
+import 'users_screen.dart';
 
 class PlantsScreen extends StatefulWidget {
   final AppDatabase database;
@@ -20,11 +26,90 @@ class PlantsScreen extends StatefulWidget {
 class _PlantsScreenState extends State<PlantsScreen> {
   bool _isSyncing = false;
   final _secureStorage = const FlutterSecureStorage();
+  late PlantRepository _plantRepository;
+
+  List<PlantModel> _plantsFromBackend = [];
+  bool _isLoadingBackend = true;
+  String? _errorMessage;
+
+  String _userRole = 'visitante';
+  String _userId = '';
+
+  String _selectedCategory = 'Todas';
+  final List<String> _categories = [
+    'Todas',
+    'Medicinal',
+    'Maderable',
+    'Frutal',
+    'Ornamental',
+    'Cultural',
+  ];
+
+  bool get _isAdmin => _userRole.contains('admin');
+  bool get _isTecnico =>
+      _userRole.contains('tecnico') || _userRole.contains('técnico');
+  bool get _isVisitante => !_isAdmin && !_isTecnico;
+
+  @override
+  void initState() {
+    super.initState();
+    _plantRepository = PlantRepository(widget.database);
+    _loadUserData();
+    _loadPlantsFromBackend();
+  }
+
+  Future<void> _loadUserData() async {
+    final role =
+        await _secureStorage.read(key: 'user_role') ??
+        await _secureStorage.read(key: 'usuario_rol');
+    final id = await _secureStorage.read(key: 'userId');
+    if (mounted) {
+      setState(() {
+        _userRole = role?.toLowerCase().trim() ?? 'visitante';
+        _userId = id ?? '';
+      });
+    }
+  }
+
+  Future<void> _loadPlantsFromBackend({String? filterCategory}) async {
+    setState(() {
+      _isLoadingBackend = true;
+      _errorMessage = null;
+    });
+    try {
+      final plants = await _plantRepository.getAllPlants(
+        category: (filterCategory != null && filterCategory != 'Todas')
+            ? filterCategory
+            : null,
+      );
+      setState(() {
+        _plantsFromBackend = plants;
+        _isLoadingBackend = false;
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = e.toString();
+        _isLoadingBackend = false;
+      });
+    }
+  }
+
+  Future<void> _eliminarPlanta(int id) async {
+    try {
+      await _plantRepository.deletePlant(id);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Planta eliminada permanentemente 🗑️')),
+      );
+      _loadPlantsFromBackend(filterCategory: _selectedCategory);
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error al eliminar: $e')));
+    }
+  }
 
   Future<void> _cerrarSesion() async {
-    await _secureStorage.delete(key: 'jwt_token');
-    await _secureStorage.delete(key: 'user_role');
-
+    await _secureStorage.deleteAll();
     if (!mounted) return;
     Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
   }
@@ -40,10 +125,11 @@ class _PlantsScreenState extends State<PlantsScreen> {
       if (cantidad > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('¡$cantidad plantas sincronizadas con éxito! 🌿'),
+            content: Text('¡$cantidad plantas sincronizadas! 🌿'),
             backgroundColor: Colors.green,
           ),
         );
+        _loadPlantsFromBackend(filterCategory: _selectedCategory);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -56,14 +142,12 @@ class _PlantsScreenState extends State<PlantsScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('No se pudo conectar al servidor. Revisa tu conexión.'),
+          content: Text('Error de conexión.'),
           backgroundColor: Colors.red,
         ),
       );
     } finally {
-      if (mounted) {
-        setState(() => _isSyncing = false);
-      }
+      if (mounted) setState(() => _isSyncing = false);
     }
   }
 
@@ -72,10 +156,21 @@ class _PlantsScreenState extends State<PlantsScreen> {
     return Scaffold(
       backgroundColor: AppTokens.colorBackground,
       appBar: AppBar(
-        title: const Text('Catálogo Biosacha'),
+        title: Text('Catálogo - ${_userRole.toUpperCase()}'),
         backgroundColor: AppTokens.colorActionPrimary,
         foregroundColor: AppTokens.neutralWhite,
         actions: [
+          if (_isAdmin)
+            IconButton(
+              icon: const Icon(Icons.people),
+              tooltip: 'Ver Usuarios',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const UsersScreen()),
+                );
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Cerrar Sesión',
@@ -87,161 +182,144 @@ class _PlantsScreenState extends State<PlantsScreen> {
         padding: const EdgeInsets.all(AppTokens.spacingMd),
         child: Column(
           children: [
-            Expanded(
-              child: StreamBuilder<List<RegistrosCampoData>>(
-                stream: widget.database
-                    .select(widget.database.registrosCampo)
-                    .watch(),
-                builder: (context, snapshot) {
-                  final bool isLoading =
-                      snapshot.connectionState == ConnectionState.waiting;
-                  final bool hasError = snapshot.hasError;
-                  final bool isEmpty =
-                      !isLoading &&
-                      !hasError &&
-                      (!snapshot.hasData || snapshot.data!.isEmpty);
+            DropdownButtonFormField<String>(
+              value: _selectedCategory,
+              decoration: const InputDecoration(
+                labelText: 'Filtrar por categoría',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.filter_list),
+              ),
+              items: _categories
+                  .map((cat) => DropdownMenuItem(value: cat, child: Text(cat)))
+                  .toList(),
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() => _selectedCategory = val);
+                  _loadPlantsFromBackend(filterCategory: val);
+                }
+              },
+            ),
+            const SizedBox(height: 10),
 
-                  return ResourceStateHandler(
-                    isLoading: isLoading,
-                    hasError: hasError,
-                    errorMessage: 'Error al leer el almacenamiento local',
-                    isEmpty: isEmpty,
-                    onRetry: () {},
-                    child: ListView.builder(
-                      itemCount: snapshot.data?.length ?? 0,
+            Expanded(
+              child: _isLoadingBackend
+                  ? const Center(child: CircularProgressIndicator())
+                  : _errorMessage != null
+                  ? const Center(
+                      child: Text(
+                        "Modo Offline activado.\nLas plantas se sincronizarán luego.",
+                        textAlign: TextAlign.center,
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: _plantsFromBackend.length,
                       itemBuilder: (context, index) {
-                        final planta = snapshot.data![index];
-                        return PlantCard(
-                          name: planta.nombreEspecie,
-                          scientificName: 'Registro en territorio',
-                          category: planta.sincronizado
-                              ? 'Sincronizado'
-                              : 'Pendiente (Modo Avión)',
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                    PlantDetailScreen(planta: planta),
+                        final planta = _plantsFromBackend[index];
+                        return Column(
+                          children: [
+                            // INTEGRACIÓN: Tarjeta conectada con imagen y navegación
+                            PlantCard(
+                              name: planta.name,
+                              scientificName:
+                                  planta.scientificName ?? 'Desconocido',
+                              category: planta.category,
+                              imagePath: planta
+                                  .fotografiaUrl, // Enviamos la foto a la tarjeta
+                              onTap: () {
+                                // Navegamos a la pantalla de detalles al tocar la tarjeta (o la flecha)
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        PlantDetailScreen(plant: planta),
+                                  ),
+                                );
+                              },
+                            ),
+
+                            if (!_isVisitante)
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  TextButton.icon(
+                                    icon: const Icon(
+                                      Icons.edit,
+                                      color: Colors.blue,
+                                    ),
+                                    label: const Text(
+                                      'Editar',
+                                      style: TextStyle(color: Colors.blue),
+                                    ),
+                                    onPressed: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => PlantFormScreen(
+                                            userId: _userId,
+                                            database: widget.database,
+                                            plantToEdit: planta,
+                                          ),
+                                        ),
+                                      ).then(
+                                        (_) => _loadPlantsFromBackend(
+                                          filterCategory: _selectedCategory,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  if (_isAdmin)
+                                    TextButton.icon(
+                                      icon: const Icon(
+                                        Icons.delete,
+                                        color: Colors.red,
+                                      ),
+                                      label: const Text(
+                                        'Eliminar',
+                                        style: TextStyle(color: Colors.red),
+                                      ),
+                                      onPressed: () =>
+                                          _eliminarPlanta(planta.id!),
+                                    ),
+                                ],
                               ),
-                            );
-                          },
+                            const SizedBox(height: 10),
+                          ],
                         );
                       },
                     ),
-                  );
-                },
-              ),
             ),
             const SizedBox(height: AppTokens.spacingMd),
-            CustomButton(
-              label: 'Sincronizar Pendientes',
-              onPressed: _sincronizarConServidor,
-              isLoading: _isSyncing,
-            ),
+
+            if (!_isVisitante)
+              CustomButton(
+                label: 'Sincronizar Pendientes',
+                onPressed: _sincronizarConServidor,
+                isLoading: _isSyncing,
+              ),
           ],
         ),
       ),
-    );
-  }
-}
 
-// =====================================================================
-// PANTALLA DE DETALLES (Muestra info completa y botón regresar)
-// =====================================================================
-class PlantDetailScreen extends StatelessWidget {
-  final RegistrosCampoData planta;
-
-  const PlantDetailScreen({super.key, required this.planta});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(planta.nombreEspecie),
-        backgroundColor: const Color(0xFF1B4D3E),
-        foregroundColor: Colors.white,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              height: 220,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Icons.eco, size: 80, color: Colors.grey),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'Nombre Común',
-              style: TextStyle(fontSize: 14, color: Colors.grey),
-            ),
-            Text(
-              planta.nombreEspecie,
-              style: const TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF1B4D3E),
-              ),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Estado del Registro',
-              style: TextStyle(fontSize: 14, color: Colors.grey),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Icon(
-                  planta.sincronizado ? Icons.cloud_done : Icons.cloud_off,
-                  color: planta.sincronizado ? Colors.green : Colors.orange,
-                  size: 28,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    planta.sincronizado
-                        ? 'Enviado correctamente al servidor (MariaDB)'
-                        : 'Guardado offline. Pendiente de sincronizar.',
-                    style: const TextStyle(fontSize: 16),
+      floatingActionButton: !_isVisitante
+          ? FloatingActionButton(
+              backgroundColor: AppTokens.colorActionPrimary,
+              child: const Icon(Icons.add, color: Colors.white),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => PlantFormScreen(
+                      userId: _userId,
+                      database: widget.database,
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            const Divider(),
-            const SizedBox(height: 10),
-            const Text(
-              'Información Científica y Usos',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            const ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.science, color: Color(0xFF2E7D32)),
-              title: Text('Nombre Científico'),
-              subtitle: Text('Sincronizando desde la base de datos...'),
-            ),
-            const ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.category, color: Color(0xFF2E7D32)),
-              title: Text('Categoría'),
-              subtitle: Text('Sincronizando desde la base de datos...'),
-            ),
-            const ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.menu_book, color: Color(0xFF2E7D32)),
-              title: Text('Descripción / Usos'),
-              subtitle: Text('Sincronizando desde la base de datos...'),
-            ),
-          ],
-        ),
-      ),
+                ).then(
+                  (_) =>
+                      _loadPlantsFromBackend(filterCategory: _selectedCategory),
+                );
+              },
+            )
+          : null,
     );
   }
 }
