@@ -1,5 +1,5 @@
 // lib/repositories/plant_repository.dart
-import 'dart:io'; // IMPORTANTE: Agregado para poder usar File y verificar la ruta
+import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' as drift;
 import '../config/api.client.dart';
@@ -27,13 +27,19 @@ class PlantRepository {
         'userId': plant.tecnicoId,
       };
 
-      // VERIFICACIÓN ESTRICTA DE LA FOTO
+      // VERIFICACIÓN ESTRICTA DE LA FOTO CON FILENAME
       if (imagePath != null && imagePath.isNotEmpty) {
         File file = File(imagePath);
         if (file.existsSync()) {
-          // Asegúrate de que 'foto' coincida con lo que pusiste en Node.js (upload.single('foto'))
-          mapData['foto'] = await MultipartFile.fromFile(imagePath);
-          print('📸 Archivo adjuntado correctamente desde: $imagePath');
+          // 1. Extraemos el nombre exacto del archivo (ej. image_picker12345.jpg)
+          String fileName = imagePath.split('/').last;
+
+          // 2. Adjuntamos la imagen CON EL FILENAME para que Node.js (Multer) la reconozca
+          mapData['foto'] = await MultipartFile.fromFile(
+            imagePath,
+            filename: fileName,
+          );
+          print('📸 Archivo empaquetado y listo para volar: $fileName');
         } else {
           print(
             '⚠️ ERROR: Flutter no encuentra el archivo físico en la ruta: $imagePath',
